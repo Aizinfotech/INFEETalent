@@ -16,8 +16,21 @@ const dirname = path.dirname(filename)
 const localOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://192.168.1.9:3000']
 const allowedOrigins = Array.from(new Set([siteConfig.url, ...localOrigins]))
 const schemaPush = process.env.PAYLOAD_ENABLE_SCHEMA_PUSH === 'true'
+const bundledSQLiteFileName = 'infe-talent.sqlite'
+const vercelSQLitePath = `/tmp/${bundledSQLiteFileName}`
 
-const getSQLitePath = (databaseUrl = 'file:./infe-talent.sqlite') => databaseUrl.replace(/^file:/i, '')
+const getSQLitePath = (databaseUrl = `file:./${bundledSQLiteFileName}`) => databaseUrl.replace(/^file:/i, '')
+
+const toAbsoluteSQLitePath = (sqlitePath: string) =>
+  path.isAbsolute(sqlitePath) ? sqlitePath : path.resolve(process.cwd(), sqlitePath)
+
+const getExistingSQLiteSourcePath = (databaseUrl?: string) => {
+  const configuredPath = databaseUrl ? toAbsoluteSQLitePath(getSQLitePath(databaseUrl)) : undefined
+  const bundledPath = path.resolve(process.cwd(), bundledSQLiteFileName)
+  const candidates = Array.from(new Set([configuredPath, bundledPath].filter(Boolean))) as string[]
+
+  return candidates.find((candidate) => existsSync(candidate))
+}
 
 const hasDifferentFileContents = (sourcePath: string, targetPath: string) => {
   if (!existsSync(targetPath)) {
@@ -32,11 +45,15 @@ const hasDifferentFileContents = (sourcePath: string, targetPath: string) => {
 }
 
 const copySQLiteToWritableVercelPath = (databaseUrl?: string) => {
-  const sourcePath = path.resolve(process.cwd(), getSQLitePath(databaseUrl))
-  const targetPath = '/tmp/infe-talent.sqlite'
+  const sourcePath = getExistingSQLiteSourcePath(databaseUrl)
+  const targetPath = vercelSQLitePath
 
-  if (!existsSync(sourcePath)) {
-    return `file:${targetPath}`
+  if (!sourcePath) {
+    if (existsSync(targetPath)) {
+      return `file:${targetPath}`
+    }
+
+    throw new Error(`Unable to find ${bundledSQLiteFileName} in the deployment output.`)
   }
 
   if (hasDifferentFileContents(sourcePath, targetPath)) {

@@ -3,6 +3,9 @@ import { withPayload } from '@payloadcms/next/withPayload'
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   allowedDevOrigins: ['127.0.0.1', '192.168.1.9'],
+  outputFileTracingIncludes: {
+    '/*': ['./infe-talent.sqlite'],
+  },
   images: {
     formats: ['image/avif', 'image/webp'],
     remotePatterns: [
