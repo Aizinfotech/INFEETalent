@@ -2,8 +2,6 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { NextResponse } from 'next/server'
 
-import { getPayload } from '@/payload/getPayload'
-
 export const dynamic = 'force-dynamic'
 
 const diagnosticToken = 'infe-runtime-check-20260616'
@@ -58,6 +56,7 @@ export async function GET(request: Request) {
   }
 
   try {
+    const { getPayload } = await import('@/payload/getPayload')
     const payload = await getPayload()
     const pages = await payload.find({ collection: 'pages', limit: 1 })
 
