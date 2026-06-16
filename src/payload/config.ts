@@ -1,7 +1,8 @@
 import { postgresAdapter } from '@payloadcms/db-postgres'
 import { sqliteAdapter } from '@payloadcms/db-sqlite'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
-import { copyFileSync, existsSync, readFileSync, statSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'fs'
+import { tmpdir } from 'os'
 import path from 'path'
 import { buildConfig } from 'payload'
 import sharp from 'sharp'
@@ -17,7 +18,8 @@ const localOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://
 const allowedOrigins = Array.from(new Set([siteConfig.url, ...localOrigins]))
 const schemaPush = process.env.PAYLOAD_ENABLE_SCHEMA_PUSH === 'true'
 const bundledSQLiteFileName = 'infe-talent.sqlite'
-const vercelSQLitePath = `/tmp/${bundledSQLiteFileName}`
+const writableTempDir = process.platform === 'win32' ? tmpdir() : '/tmp'
+const vercelSQLitePath = path.join(writableTempDir, bundledSQLiteFileName)
 
 const getSQLitePath = (databaseUrl = `file:./${bundledSQLiteFileName}`) => databaseUrl.replace(/^file:/i, '')
 
@@ -57,6 +59,7 @@ const copySQLiteToWritableVercelPath = (databaseUrl?: string) => {
   }
 
   if (hasDifferentFileContents(sourcePath, targetPath)) {
+    mkdirSync(path.dirname(targetPath), { recursive: true })
     copyFileSync(sourcePath, targetPath)
   }
 
