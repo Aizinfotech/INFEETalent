@@ -26,10 +26,39 @@ const getSQLitePath = (databaseUrl = `file:./${bundledSQLiteFileName}`) => datab
 const toAbsoluteSQLitePath = (sqlitePath: string) =>
   path.isAbsolute(sqlitePath) ? sqlitePath : path.resolve(process.cwd(), sqlitePath)
 
+const findFileUpwards = (startDir: string, fileName: string, maxDepth = 8) => {
+  let currentDir = startDir
+
+  for (let depth = 0; depth <= maxDepth; depth += 1) {
+    const candidate = path.join(currentDir, fileName)
+
+    if (existsSync(candidate)) {
+      return candidate
+    }
+
+    const parentDir = path.dirname(currentDir)
+
+    if (parentDir === currentDir) {
+      return undefined
+    }
+
+    currentDir = parentDir
+  }
+
+  return undefined
+}
+
 const getExistingSQLiteSourcePath = (databaseUrl?: string) => {
   const configuredPath = databaseUrl ? toAbsoluteSQLitePath(getSQLitePath(databaseUrl)) : undefined
   const bundledPath = path.resolve(process.cwd(), bundledSQLiteFileName)
-  const candidates = Array.from(new Set([configuredPath, bundledPath].filter(Boolean))) as string[]
+  const candidates = Array.from(
+    new Set([
+      configuredPath,
+      bundledPath,
+      findFileUpwards(process.cwd(), bundledSQLiteFileName),
+      findFileUpwards(dirname, bundledSQLiteFileName),
+    ].filter(Boolean)),
+  ) as string[]
 
   return candidates.find((candidate) => existsSync(candidate))
 }
@@ -69,9 +98,18 @@ const copySQLiteToWritableVercelPath = (databaseUrl?: string) => {
 const getDatabaseUrl = () => {
   const configuredDatabaseUrl = process.env.DATABASE_URL?.trim()
   const isConfiguredSqlite = configuredDatabaseUrl ? /^file:/i.test(configuredDatabaseUrl) : false
+  const isConfiguredPostgres = configuredDatabaseUrl ? /^postgres(ql)?:\/\//i.test(configuredDatabaseUrl) : false
+  const shouldUsePostgresOnVercel =
+    process.env.PAYLOAD_DATABASE_ADAPTER === 'postgres' ||
+    process.env.PAYLOAD_DB_ADAPTER === 'postgres' ||
+    process.env.PAYLOAD_USE_POSTGRES === 'true'
 
   if (process.env.VERCEL && (!configuredDatabaseUrl || isConfiguredSqlite)) {
     return copySQLiteToWritableVercelPath(configuredDatabaseUrl)
+  }
+
+  if (process.env.VERCEL && isConfiguredPostgres && !shouldUsePostgresOnVercel) {
+    return copySQLiteToWritableVercelPath()
   }
 
   if (configuredDatabaseUrl) {
