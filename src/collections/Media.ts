@@ -17,6 +17,13 @@ export const Media: CollectionConfig = {
   },
   upload: {
     staticDir: 'public/media',
+    handlers: [
+      (req, { params }) => {
+        const url = new URL(`/media/${encodeURIComponent(params.filename)}`, req.url)
+
+        return Response.redirect(url, 302)
+      },
+    ],
     mimeTypes: ['image/*', 'application/pdf'],
     imageSizes: [
       {
