@@ -346,22 +346,20 @@ async function run() {
       ),
   )
 
-  await Promise.all(
-    serviceDocs.map((service, index) =>
-      payload.update({
-        collection: 'services',
-        id: service.id,
-        data: {
-          relatedServices: [
-            serviceDocs[(index + 1) % serviceDocs.length]?.id,
-            serviceDocs[(index + 2) % serviceDocs.length]?.id,
-            serviceDocs[(index + 3) % serviceDocs.length]?.id,
-          ].filter(Boolean),
-        },
-        overrideAccess: true,
-      }),
-    ),
-  )
+  for (const [index, service] of serviceDocs.entries()) {
+    await payload.update({
+      collection: 'services',
+      id: service.id,
+      data: {
+        relatedServices: [
+          serviceDocs[(index + 1) % serviceDocs.length]?.id,
+          serviceDocs[(index + 2) % serviceDocs.length]?.id,
+          serviceDocs[(index + 3) % serviceDocs.length]?.id,
+        ].filter(Boolean),
+      },
+      overrideAccess: true,
+    })
+  }
 
   const testimonialMediaPool = [
     media.testimonialVideo,
