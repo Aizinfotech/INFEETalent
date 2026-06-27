@@ -13,7 +13,8 @@
     "payload:importmap": "payload generate:importmap",
     "payload:migrate": "payload migrate",
     "payload:migrate:create": "payload migrate:create",
-    "payload:seed": "tsx src/payload/seed.ts"
+    "payload:seed": "tsx src/payload/seed.ts",
+    "check:live-env": "node scripts/check-live-env.mjs"
   },
   "dependencies": {
     "@payloadcms/db-postgres": "^3.84.1",

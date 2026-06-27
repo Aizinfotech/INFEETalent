@@ -1,8 +1,6 @@
 import { postgresAdapter } from '@payloadcms/db-postgres'
 import { sqliteAdapter } from '@payloadcms/db-sqlite'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'fs'
-import { tmpdir } from 'os'
 import path from 'path'
 import { buildConfig } from 'payload'
 import sharp from 'sharp'
@@ -15,101 +13,87 @@ import { siteConfig } from '@/lib/site'
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 const localOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://192.168.1.9:3000']
-const allowedOrigins = Array.from(new Set([siteConfig.url, ...localOrigins]))
 const schemaPush = process.env.PAYLOAD_ENABLE_SCHEMA_PUSH === 'true'
-const bundledSQLiteFileName = 'infe-talent.sqlite'
-const writableTempDir = process.platform === 'win32' ? tmpdir() : '/tmp'
-const vercelSQLitePath = path.join(writableTempDir, bundledSQLiteFileName)
+const isVercel = Boolean(process.env.VERCEL)
+const allowEphemeralSQLiteOnVercel = process.env.PAYLOAD_ALLOW_EPHEMERAL_SQLITE === 'true'
 
-const getSQLitePath = (databaseUrl = `file:./${bundledSQLiteFileName}`) => databaseUrl.replace(/^file:/i, '')
+const originListFromEnv = (value?: string) =>
+  value
+    ?.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean) ?? []
 
-const toAbsoluteSQLitePath = (sqlitePath: string) =>
-  path.isAbsolute(sqlitePath) ? sqlitePath : path.resolve(process.cwd(), sqlitePath)
-
-const findFileUpwards = (startDir: string, fileName: string, maxDepth = 8) => {
-  let currentDir = startDir
-
-  for (let depth = 0; depth <= maxDepth; depth += 1) {
-    const candidate = path.join(currentDir, fileName)
-
-    if (existsSync(candidate)) {
-      return candidate
-    }
-
-    const parentDir = path.dirname(currentDir)
-
-    if (parentDir === currentDir) {
-      return undefined
-    }
-
-    currentDir = parentDir
+const normalizeOrigin = (origin?: string) => {
+  if (!origin) {
+    return undefined
   }
 
-  return undefined
+  const trimmedOrigin = origin.trim().replace(/\/+$/, '')
+
+  if (!trimmedOrigin) {
+    return undefined
+  }
+
+  const originWithProtocol = /^https?:\/\//i.test(trimmedOrigin)
+    ? trimmedOrigin
+    : `https://${trimmedOrigin}`
+
+  try {
+    return new URL(originWithProtocol).origin
+  } catch {
+    return undefined
+  }
 }
 
-const getExistingSQLiteSourcePath = (databaseUrl?: string) => {
-  const configuredPath = databaseUrl ? toAbsoluteSQLitePath(getSQLitePath(databaseUrl)) : undefined
-  const bundledPath = path.resolve(process.cwd(), bundledSQLiteFileName)
-  const candidates = Array.from(
-    new Set([
-      configuredPath,
-      bundledPath,
-      findFileUpwards(process.cwd(), bundledSQLiteFileName),
-      findFileUpwards(dirname, bundledSQLiteFileName),
-    ].filter(Boolean)),
-  ) as string[]
+const isIPAddress = (hostname: string) => /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)
 
-  return candidates.find((candidate) => existsSync(candidate))
+const getOriginVariants = (origin?: string) => {
+  const normalizedOrigin = normalizeOrigin(origin)
+
+  if (!normalizedOrigin) {
+    return []
+  }
+
+  const originUrl = new URL(normalizedOrigin)
+  const variants = [normalizedOrigin]
+  const shouldAddWwwVariant =
+    !originUrl.hostname.includes('localhost') &&
+    !originUrl.hostname.endsWith('.vercel.app') &&
+    !isIPAddress(originUrl.hostname)
+
+  if (shouldAddWwwVariant) {
+    const alternateHostname = originUrl.hostname.startsWith('www.')
+      ? originUrl.hostname.slice(4)
+      : `www.${originUrl.hostname}`
+
+    variants.push(`${originUrl.protocol}//${alternateHostname}${originUrl.port ? `:${originUrl.port}` : ''}`)
+  }
+
+  return variants
 }
 
-const hasDifferentFileContents = (sourcePath: string, targetPath: string) => {
-  if (!existsSync(targetPath)) {
-    return true
-  }
-
-  if (statSync(sourcePath).size !== statSync(targetPath).size) {
-    return true
-  }
-
-  return !readFileSync(sourcePath).equals(readFileSync(targetPath))
-}
-
-const copySQLiteToWritableVercelPath = (databaseUrl?: string) => {
-  const sourcePath = getExistingSQLiteSourcePath(databaseUrl)
-  const targetPath = vercelSQLitePath
-
-  if (!sourcePath) {
-    if (existsSync(targetPath)) {
-      return `file:${targetPath}`
-    }
-
-    throw new Error(`Unable to find ${bundledSQLiteFileName} in the deployment output.`)
-  }
-
-  if (hasDifferentFileContents(sourcePath, targetPath)) {
-    mkdirSync(path.dirname(targetPath), { recursive: true })
-    copyFileSync(sourcePath, targetPath)
-  }
-
-  return `file:${targetPath}`
-}
+const allowedOrigins = Array.from(
+  new Set(
+    [
+      siteConfig.url,
+      process.env.NEXT_PUBLIC_SITE_URL,
+      process.env.NEXT_PUBLIC_SERVER_URL,
+      process.env.VERCEL_PROJECT_PRODUCTION_URL,
+      process.env.VERCEL_URL,
+      ...originListFromEnv(process.env.PAYLOAD_ALLOWED_ORIGINS),
+      ...localOrigins,
+    ].flatMap(getOriginVariants),
+  ),
+)
 
 const getDatabaseUrl = () => {
   const configuredDatabaseUrl = process.env.DATABASE_URL?.trim()
   const isConfiguredSqlite = configuredDatabaseUrl ? /^file:/i.test(configuredDatabaseUrl) : false
-  const isConfiguredPostgres = configuredDatabaseUrl ? /^postgres(ql)?:\/\//i.test(configuredDatabaseUrl) : false
-  const shouldUsePostgresOnVercel =
-    process.env.PAYLOAD_DATABASE_ADAPTER === 'postgres' ||
-    process.env.PAYLOAD_DB_ADAPTER === 'postgres' ||
-    process.env.PAYLOAD_USE_POSTGRES === 'true'
 
-  if (process.env.VERCEL && (!configuredDatabaseUrl || isConfiguredSqlite)) {
-    return copySQLiteToWritableVercelPath(configuredDatabaseUrl)
-  }
-
-  if (process.env.VERCEL && isConfiguredPostgres && !shouldUsePostgresOnVercel) {
-    return copySQLiteToWritableVercelPath()
+  if (isVercel && (!configuredDatabaseUrl || isConfiguredSqlite) && !allowEphemeralSQLiteOnVercel) {
+    throw new Error(
+      'Payload admin requires a persistent DATABASE_URL on Vercel. Use a hosted Postgres database for live admin edits, or set PAYLOAD_ALLOW_EPHEMERAL_SQLITE=true only for throwaway preview deployments.',
+    )
   }
 
   if (configuredDatabaseUrl) {
